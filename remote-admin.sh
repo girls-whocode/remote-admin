@@ -7,7 +7,10 @@ config_path="./"
 sshconfig_file="$HOME/.ssh/config"
 search_dir=(*)
 
-# Load or Create a standard config file
+# Function: config
+# Description: This function checks for the existence of a configuration file.
+#              If the file exists, it sources it to load the configuration settings.
+#              If the file does not exist, it creates a new configuration file with default settings.
 function config() {
     if [ -e "${config_path}${config_file}" ]; then
         # shellcheck source=/dev/null
@@ -26,16 +29,20 @@ function config() {
     fi
 }
 
-# Assign colors for easier to read output
+# Function: assign_colors
+# Description: This function assigns color codes to variables based on the value of the 'color_output' variable.
+#              The color codes are ANSI escape sequences for terminal color formatting.
 function assign_colors() {
+    # Check the value of 'cmd_color_output' to determine the value of 'color_output'
     if [ "$cmd_color_output" = "false" ]; then
-        echo "Command color false"
         color_output=false
-    else
+    elif [ "$cmd_color_output" = "true" ]; then
         color_output=true
     fi
 
+    # Assign color codes to variables based on the value of 'color_output'
     if [ "$color_output" = "true" ]; then
+        # Color codes for colored output
         readonly black='\033[0;30m'
         readonly red='\033[0;31m'
         readonly green='\033[0;32m'
@@ -54,6 +61,7 @@ function assign_colors() {
         readonly white='\033[1;37m'
         readonly default='\033[0m'
     else
+        # Color codes for non-colored output
         readonly black='\033[0m'
         readonly red='\033[0m'
         readonly green='\033[0m'
@@ -74,16 +82,22 @@ function assign_colors() {
     fi
 }
 
-# Display Help if an invalid argument or -h is used
+# Function: display_help
+# Description: This function displays the help information for the script, including available options and examples.
 function display_help() {
+    # Define the padding size for option descriptions
     local option_padding=25
 
+    # Display the application name, version, and header for arguments and examples
     printf "%b%s %bv%s %b- Arguments and Examples\n" "${light_red}" "${app_name}" "${light_blue}" "${app_ver}" "${default}"
     printf "%b------------------------------------------\n\n" "${dark_gray}"
 
+    # Display the script usage information
     printf "${light_cyan}Usage: ${light_green}%s ${light_blue}[options]\n\n${default}" "${script_name}"
     printf "${light_red}NOTE: ${light_magenta}Options are optional, if no options are used, %s\n" "${app_name}"
-    printf "%bwill ask any qualifing questions to attempt the action you choose.\n\n" "${light_magenta}"
+    printf "%bwill ask any qualifying questions to attempt the action you choose.\n\n" "${light_magenta}"
+
+    # Display the available options
     printf "%bOptions:%b\n" "${light_cyan}" "${default}"
     printf "${light_blue}  -h${default}"
     printf "%*s${light_gray}Display help${default}\n" $((option_padding - 2))
@@ -98,6 +112,7 @@ function display_help() {
     printf "${light_blue}  -c=<true|false>${default}"
     printf "%*s${light_gray}Set color output (default: ${light_blue}true${light_gray})${default}\n" $((option_padding - 15))
 
+    # Exit the script with a success status code
     exit 0
 }
 
@@ -108,30 +123,36 @@ function rebuild_config() {
     exit 0
 }
 
-# Check and Open ${HOME}/.ssh/config file and display a list, 
-# if nothing exists, then prompt for a hostname.
-function getHost {
+# Function: getHost
+# Description: This function checks if the ${HOME}/.ssh/config file exists and displays a list of hosts from it.
+#              If the file does not exist, it prompts the user to enter a hostname manually.
+function getHost() {
+    # Check if the ${HOME}/.ssh/config file exists
     if [ -e "$sshconfig_file" ]; then
+        # Declare an array to store host options
         declare -a host_options=()
 
+        # Read each line of the ${HOME}/.ssh/config file
         while IFS= read -r line; do
             # Check if the line starts with "Host "
             if [[ $line == Host* ]]; then
-                # Extract the hostname from the line
+                # Extract the hostname from the line and add it to the host_options array
                 host_options+=("${line#Host }")
             fi
         done < "$sshconfig_file"
 
+        # Add the "Type in Hostname" option to the host_options array
         host_options+=("Type in Hostname")
 
+        # Prompt the user to select a host option
         select_option "${host_options[@]}"
         host_choice=$?
         last_index=$(( ${#host_options[@]} - 1 ))  # Get the last index
 
-        echo $last_index
-
+        # Handle the selected host option
         case $host_choice in
             "$last_index" )
+                # User chose the "Type in Hostname" option
                 printf "Type a %bFQDN%b or %bFQHN%b to perform an action with\n" "${light_yellow}" "${default}" "${light_yellow}" "${default}"
                 printf "%b═══════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
 
@@ -139,8 +160,8 @@ function getHost {
                 hostname="$custom_option"
                 return
                 ;;
-            *)
-                # Handle selected option
+            * )
+                # User chose a specific host option from the list
                 printf "%b%s%b was selected\n" "${light_yellow}" "${host_options[$host_choice]}" "${default}"
                 printf "%b═══════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
                 hostname="${host_options[$host_choice]}"
@@ -148,6 +169,7 @@ function getHost {
                 ;;
         esac
     else
+        # The ${HOME}/.ssh/config file does not exist
         printf "Type a %bFQDN%b or %bFQHN%b to perform an action with\n" "${light_yellow}" "${default}" "${light_yellow}" "${default}"
         printf "%b═══════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
 
@@ -157,19 +179,22 @@ function getHost {
     fi
 }
 
-# Get the list of files in the directory, and display them
-# in a list.
-function getHostFile {
+# Function: getHostFile
+# Description: This function prompts the user to select a host file from a list and reads the selected file.
+#              It reads each line from the file and adds it to the `host_array` array.
+function getHostFile() {
+    # Prompt the user to select a host file
     select_option "${search_dir[@]}"
     file_choice=$?
 
-    # Read each line from the file and add it to the array
+    # Read each line from the selected file and add it to the host_array array
     while IFS= read -r line; do
         host_array+=("$line")
     done < "${search_dir[$file_choice]}"
 
     return
 }
+
 
 # Get the user from the config file, and ask if it needs to
 # change
@@ -188,8 +213,8 @@ function getIdentity {
     return
 }
 
-# Have user select what action to perform if it wasn't specified
-# in the arguments
+# Function: getAction
+# Description: This function prompts the user to select an action to perform on the host(s) and performs the selected action.
 function getAction {
     # Does hostname have a value, if not then host_array should
     if [ "${hostname}" = "" ]; then
@@ -517,8 +542,9 @@ function getAction {
     esac
 }
 
-# Renders a text based list of options that can be selected by the
-# user using up, down and enter keys and returns the chosen option.
+# Function: select_option
+# Description: This function displays a menu of options and allows the user to select one option.
+#              It handles the user's key inputs and returns the index of the selected option.
 function select_option {
     ESC=$( printf "\033")
     cursor_blink_on()  { printf "%b" "\033[?25h"; }
@@ -576,10 +602,14 @@ function select_option {
 }
 
 clear
+
+# Check if no command-line arguments are provided
 if [[ $# -eq 0 ]]; then
+    # Configuration and color assignment
     config
     assign_colors
 
+    # Prompt the user to select a host or host file
     printf "A %bhost%b or %bhost file%b was not specified, choose if you want to select a specific host, or a multiple hosts\n" "${light_yellow}" "${default}" "${light_yellow}" "${default}"
     printf "%b════════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
     host_type=("Single Host" "Multiple Hosts with a file")
@@ -605,6 +635,7 @@ if [[ $# -eq 0 ]]; then
     clear
     getAction
 else
+    # Command-line arguments are provided
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -a=*|--action=*)
@@ -643,6 +674,7 @@ else
         shift
     done
 
+    # Configuration and color assignment
     config
     assign_colors
 
@@ -651,7 +683,7 @@ else
 
     # TODO: Need to check for hostfile if it was used.
 
-    # Was Host or Host File specified, if not lets ask?
+    # Check if a host or host file is specified, if not, prompt the user to select
     if [ "$hostname" = "" ]; then
         printf "A %bhost%b or %bhost file%b was not specified, choose if you want to select a specific host, or a multiple hosts\n" "${light_yellow}" "${default}" "${light_yellow}" "${default}"
         printf "%b════════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
