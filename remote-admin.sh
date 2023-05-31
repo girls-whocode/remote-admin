@@ -10,6 +10,11 @@ config_path="./"
 sshconfig_file="$HOME/.ssh/config"
 search_dir=(*)
 
+# Function: bye
+# Description: Close remote-admin and clean up any set variables left behind. Display
+#              exit message.
+#   TODO: Clear and variables set
+#   TODO: Display a nice goodbye message
 function bye {
     exit 0
 }
@@ -17,7 +22,8 @@ function bye {
 # Function: config
 # Description: This function checks for the existence of a configuration file.
 #              If the file exists, it sources it to load the configuration settings.
-#              If the file does not exist, it creates a new configuration file with default settings.
+#              If the file does not exist, it creates a new configuration file with
+#              default settings.
 function config() {
     if [ -e "${config_path}${config_file}" ]; then
         # shellcheck source=/dev/null
@@ -38,8 +44,9 @@ function config() {
 }
 
 # Function: assign_colors
-# Description: This function assigns color codes to variables based on the value of the 'color_output' variable.
-#              The color codes are ANSI escape sequences for terminal color formatting.
+# Description: This function assigns color codes to variables based on the value of 
+#              the 'color_output' variable. The color codes are ANSI escape sequences 
+#              for terminal color formatting.
 function assign_colors() {
     # Check the value of 'cmd_color_output' to determine the value of 'color_output'
     if [ "$cmd_color_output" = "false" ]; then
@@ -90,6 +97,11 @@ function assign_colors() {
     fi
 }
 
+# Function: select_file
+# Description: This function allows the user to select a file from the list of files
+#              in the current directory
+#   TODO: Need to have the ability to traverse directories
+#   TODO: Need the ability for the user to type in a directory and or file
 function select_file() {
     # Prompt the user to select a host file
     select_option "${search_dir[@]}"
@@ -97,7 +109,8 @@ function select_file() {
 }
 
 # Function: copy_file
-# Description: This function gathers a list of files, displays them in a list and copies that file to the host.
+# Description: This function gathers a list of files, displays them in a list and copies
+#              that file to the host.
 function copy_file() {
     select_file
     cp_file_name="${search_dir[$file_choice]}"
@@ -105,7 +118,9 @@ function copy_file() {
 }
 
 # Function: display_help
-# Description: This function displays the help information for the script, including available options and examples.
+# Description: This function displays the help information for the script, including 
+#              available options and examples.
+#   TODO: Clean up, and have a nice display for the help system
 function display_help() {
     # Define the padding size for option descriptions
     local option_padding=25
@@ -145,6 +160,7 @@ function display_help() {
 }
 
 # Allow the user to build a config file with specified answers
+#   TODO: Complete this function
 function rebuild_config() {
     echo "Rebuild Config file with answered questions"
     
@@ -152,8 +168,9 @@ function rebuild_config() {
 }
 
 # Function: get_host
-# Description: This function checks if the ${HOME}/.ssh/config file exists and displays a list of hosts from it.
-#              If the file does not exist, it prompts the user to enter a hostname manually.
+# Description: This function checks if the ${HOME}/.ssh/config file exists and displays 
+#              a list of hosts from it. If the file does not exist, it prompts the user 
+#              to enter a hostname manually.
 function get_host() {
     # Check if the ${HOME}/.ssh/config file exists
     if [ -e "$sshconfig_file" ]; then
@@ -208,8 +225,9 @@ function get_host() {
 }
 
 # Function: get_host_file
-# Description: This function prompts the user to select a host file from a list and reads the selected file.
-#              It reads each line from the file and adds it to the `host_array` array.
+# Description: This function prompts the user to select a host file from a list and 
+#              reads the selected file. It reads each line from the file and adds it 
+#              to the `host_array` array.
 function get_host_file() {
     select_file
 
@@ -225,6 +243,7 @@ function get_host_file() {
 
 # Get the user from the config file, and ask if it needs to
 # change
+#   TODO: Complete this function
 function get_user {
     # The user is specified in the config file, use it
     echo "Get User"
@@ -234,6 +253,7 @@ function get_user {
 # Get the identity from the config file, if it is empty, ask
 # if they want to use on, else ask if they want to use the
 # identity in the config file
+#   TODO: Complete this function
 function get_identity {
     # The identity is specified in the config file, use it
     echo "Get Identity"
@@ -241,7 +261,8 @@ function get_identity {
 }
 
 # Function: get_action
-# Description: This function prompts the user to select an action to perform on the host(s) and performs the selected action.
+# Description: This function prompts the user to select an action to perform on the 
+#              host(s) and performs the selected action.
 function get_action {
     # Does hostname have a value, if not then host_array should
     if [ "${hostname}" = "" ]; then
@@ -616,8 +637,9 @@ function get_action {
 }
 
 # Function: select_option
-# Description: This function displays a menu of options and allows the user to select one option.
-#              It handles the user's key inputs and returns the index of the selected option.
+# Description: This function displays a menu of options and allows the user to select 
+#              one option. It handles the user's key inputs and returns the index of 
+#              the selected option.
 function select_option {
     ESC=$( printf "\033")
     cursor_blink_on()  { printf "%b" "\033[?25h"; }
