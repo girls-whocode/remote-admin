@@ -107,11 +107,15 @@ function display_help() {
 
     # Display the script usage information
     printf "${light_cyan}Usage: ${light_green}%s ${light_blue}[options]\n\n${default}" "${script_name}"
-    printf "${light_red}NOTE: ${light_magenta}Options are optional, if no options are used, %s\n" "${app_name}"
-    printf "%bwill ask any qualifying questions to attempt the action you choose.\n\n" "${light_magenta}"
+    printf "%bNOTE: %bIf no options are provided, %b%s%b will prompt the user\n" "${light_red}" "${light_magenta}" "${white}" "${app_name}" "${light_magenta}"
+    printf "%bwith relevant questions to gather the necessary arguments. The options\n" "${light_magenta}"
+    printf "%bserve as an alternative way to provide the required information, but\n" "${light_magenta}"
+    printf "%bthey are not mandatory.\n\n" "${light_magenta}"
 
     # Display the available options
     printf "%bOptions:%b\n" "${light_cyan}" "${default}"
+    printf "%b  -a%b" "${light_blue}" "${default}"
+    printf "%*s${light_gray}Invoke action${default}\n" $((option_padding - 2))
     printf "%b  -h%b" "${light_blue}" "${default}"
     printf "%*s${light_gray}Display help${default}\n" $((option_padding - 2))
     printf "%b  -H <hostname>%b" "${light_blue}" "${default}"
@@ -122,8 +126,10 @@ function display_help() {
     printf "%*s${light_gray}Set the username${default}\n" $((option_padding - 21))
     printf "%b  -i, --identity <keyfile>%b" "${light_blue}" "${default}"
     printf "%*s${light_gray}Set the SSH key identity${default}\n" $((option_padding - 24))
+    printf "%b  -p%b" "${light_blue}" "${default}"
+    printf "%*s${light_gray}Specify port${default}\n" $((option_padding - 2))
     printf "%b  -c=<true|false>%b" "${light_blue}" "${default}"
-    printf "%*s${light_gray}Set color output (default: ${light_blue}true${light_gray})${default}\n" $((option_padding - 15))
+    printf "%*s${light_gray}Set color output (default: ${light_blue}true${light_gray})${default}\n\n" $((option_padding - 15))
 
     # Exit the script with a success status code
     exit 0
