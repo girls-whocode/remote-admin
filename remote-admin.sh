@@ -10,6 +10,10 @@ config_path="./"
 sshconfig_file="$HOME/.ssh/config"
 search_dir=(*)
 
+function bye {
+    exit 0
+}
+
 # Function: config
 # Description: This function checks for the existence of a configuration file.
 #              If the file exists, it sources it to load the configuration settings.
@@ -86,11 +90,16 @@ function assign_colors() {
     fi
 }
 
+function select_file() {
+    # Prompt the user to select a host file
+    select_option "${search_dir[@]}"
+    file_choice=$?
+}
+
 # Function: copy_file
 # Description: This function gathers a list of files, displays them in a list and copies that file to the host.
 function copy_file() {
-    select_option "${search_dir[@]}"
-    file_choice=$?
+    select_file
     cp_file_name="${search_dir[$file_choice]}"
     return
 }
@@ -202,9 +211,7 @@ function get_host() {
 # Description: This function prompts the user to select a host file from a list and reads the selected file.
 #              It reads each line from the file and adds it to the `host_array` array.
 function get_host_file() {
-    # Prompt the user to select a host file
-    select_option "${search_dir[@]}"
-    file_choice=$?
+    select_file
 
     # Read each non-empty line from the selected file and add it to the host_array array
     while IFS= read -r line; do
@@ -261,6 +268,7 @@ function get_action {
         "Check Load" #8
         "Reboot Host" #9
         "Shutdown Host" #10
+        "Exit ${app_name}" #11
     )
 
     printf "%b%s%b\n" "${light_yellow}" "${display_host}" "${default}"
@@ -597,6 +605,9 @@ function get_action {
                     fi
                 done
             fi
+            ;;
+        11)
+            bye
             ;;
         *)
             echo "Index ${action_choice} is ${action_options[$action_choice]} to $display_host"
