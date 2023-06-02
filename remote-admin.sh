@@ -755,9 +755,11 @@ function multiselect {
         # print options by overwriting the last lines
         local idx=0
         for option in "${options[@]}"; do
-            local prefix="[ ]"
+            # local prefix="[  ]"
+            local prefix="⬜"
             if [[ ${selected[idx]} == true ]]; then
-              prefix="[\e[38;5;46m✔\e[0m]"
+            #   prefix="[\e[38;5;46m✔\e[0m ]"
+                prefix="✅"
             fi
 
             cursor_to $(($startrow + $idx))
@@ -775,7 +777,7 @@ function multiselect {
         print_options $active
 
         # user key control
-        case `key_input` in
+        case $(key_input) in
             space)  toggle_option $active;;
             enter)  print_options -1; break;;
             up)     ((active--));
@@ -794,23 +796,26 @@ function multiselect {
 }
 
 clear
-multi_options=("Item 1" "Item 2" "Item 3" "Item 4" "Item 5" "Item 6")
-preselection=("true" "true" "false" "false" "false" "true")
-multiselect result multi_options preselection
-
-idx=0
-for option in "${multi_options[@]}"; do
-    echo -e "$option\t=> ${result[idx]}"
-    ((idx++))
-done
-
-exit 0
 
 # Check if no command-line arguments are provided
 if [[ $# -eq 0 ]]; then
     # Configuration and color assignment
     config
     assign_colors
+
+    multi_options=("Item 1" "Item 2" "Item 3" "Item 4" "Item 5" "Item 6")
+    preselection=("true" "true" "false" "false" "false" "true")
+
+    # arguments: returned_variable options default_values
+    multiselect result multi_options preselection
+
+    echo "selected : ${result[*]}"
+    idx=0
+    for option in "${multi_options[@]}"; do
+        echo -e "$option\t=> ${result[idx]}"
+        ((idx++))
+    done
+
 
     # Prompt the user to select a host or host file
     printf "A %bhost%b or %bhost file%b was not specified, choose if you want to select a specific host, or a multiple hosts\n" "${light_yellow}" "${default}" "${light_yellow}" "${default}"
