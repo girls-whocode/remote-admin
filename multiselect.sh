@@ -1,4 +1,9 @@
 #!/bin/bash
+################################
+# Redseigned, by Jessica Brown
+# Origional: Satnur
+#            https://unix.stackexchange.com/users/502665/satnur
+
 export black='\e[0;30m'
 export dark_gray='\e[1;30m'
 export dark_red='\e[1;31m'
@@ -18,7 +23,7 @@ export light_grey='\e[0;37m'
 export white='\e[1;37m'
 export default='\e[0;m'
 
-function multiselect_43p {
+function multiselect {
     ESC=$(printf "\033")
     cursor_blink_on()   { printf "%b" "$ESC[?25h"; }
     cursor_blink_off()  { printf "%b" "$ESC[?25l"; }
@@ -51,7 +56,7 @@ function multiselect_43p {
 
     cursor_to $(( LINES - 2 ))
     printf "_%.s" $(seq "$COLS")
-    echo -e "$light_blue / $title / | ${dark_green} select : key ${white}[space]${dark_green} | (un)select all : key (${white}[n]${dark_green})${white}[a]${dark_green} | move : arrow ${white}up/down/left/right${dark_green} or keys ${white}k/j/l/h${dark_green} | validation : ${white}[enter] $default\n" | column 
+    echo -e "${light_blue} ${title} | ${white}[space]${dark_green} select | (${white}[n]${dark_green})${white}[a]${dark_green} (un)select all | ${white}up/down/left/right${dark_green} or ${white}k/j/l/h${dark_green} move" | column 
 
     # determine current screen position for overwriting the options
     local lastrow=$(get_cursor_row)
@@ -209,32 +214,27 @@ COLS=$( tput cols )
 
 clear
 
-for ((i=0; i<256; i++)); do
+# Dynamically add a bunch of choices to select
+for ((i=0; i<57; i++)); do
     _list[i]="Choice $i"
     _preselection_list[i]=false
 done
 
-colmax=7
+colmax=4
 offset=$(( COLS / colmax ))
-
-VERSION=$(echo "$BASH_VERSION" | awk -F\( '{print $1}' | awk -F. '{print $1"."$2}')
-
-if [ $(echo "$VERSION >= 4.3" | bc -l) -eq 1 ]; then
-    multiselect_43p result $colmax $offset _list _preselection_list "CHOICE OF REPOSITORY" 
-else
-    echo "Your BASH is out of date"
-    # multiselect_43m result $colmax $offset ${#_list[@]} "${_list[@]}" "${_preselection_list[@]}" "CHOICE OF REPOSITORY" 
-fi
+multiselect result $colmax $offset _list _preselection_list "CHOICE OF REPOSITORY" 
 
 idx=0
 dbg=1
 status=1
+
+# display all of the choices
 for option in "${_list[@]}"; do
     if  [[ ${result[idx]} == true ]]; then
         if [ $dbg -eq 0 ]; then
                 echo -e "$option\t=> ${result[idx]}"
         fi
-        TARGET=$(echo $TARGET ${option})
+        TARGET=$(echo "$TARGET" "${option}")
         status=0
     fi  
         ((idx++))
@@ -246,11 +246,3 @@ else
     echo -e "$dark_green No items selected... $default"
     exit
 fi
-
-while true; do
-    case `key_input` in
-            enter)  break;;
-        esac
-done
-
-clear
