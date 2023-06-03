@@ -756,10 +756,10 @@ function multiselect {
         local idx=0
         for option in "${options[@]}"; do
             # local prefix="[  ]"
-            local prefix="⬜"
+            local prefix="\u2b1c"
             if [[ ${selected[idx]} == true ]]; then
             #   prefix="[\e[38;5;46m✔\e[0m ]"
-                prefix="✅"
+                prefix="\u2705"
             fi
 
             cursor_to $(($startrow + $idx))
