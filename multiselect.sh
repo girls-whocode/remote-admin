@@ -58,8 +58,8 @@ export default='\e[0;m'
 function multiselect_43p {
     # little helpers for terminal print control and key input
     ESC=$(printf "\033")
-    cursor_blink_on()   { printf "$ESC[?25h"; }
-    cursor_blink_off()  { printf "$ESC[?25l"; }
+    cursor_blink_on()   { printf "%b" "$ESC[?25h"; }
+    cursor_blink_off()  { printf "%b" "$ESC[?25l"; }
     cursor_to()         { printf "$ESC[$1;${2:-1}H"; }
     print_inactive()    { printf "$2   $1 "; }
     print_active()      { printf "$2  $ESC[7m $1 $ESC[27m"; }
