@@ -7,7 +7,8 @@ script_name="remote_admin.sh"
 app_ver="1.0"
 config_file="remote-admin.conf"
 config_path="./"
-sshconfig_file="$HOME/.ssh/config"
+tmpfile=/tmp/sshtorc-${USER}
+CONFILES=$(shopt -s nullglob; echo ~/.ssh/{config,config*[!~],config*[!~]/*})
 search_dir=(*)
 LINES=$( tput lines )
 COLS=$( tput cols )
@@ -15,9 +16,22 @@ COLS=$( tput cols )
 # Function: bye
 # Description: Close remote-admin and clean up any set variables left behind. Display
 #              exit message.
-#   TODO: Clear and variables set
 #   TODO: Display a nice goodbye message
 function bye {
+    assigned_vars=(
+        "app_name" "script_name" "app_ver" "config_file" "config_path" "sshconfig_file" "search_dir"
+        "black" "red" "green" "yellow" "blue" "magenta" "cyan" "light_gray" "dark_gray" "light_red" 
+        "light_green" "light_yellow" "light_blue" "light_magenta" "light_cyan" "white" "default"
+        "config_lines" "cmd_color_output" "color_output" "option_padding" "color_selection" 
+        "username_option" "username" "host_options" "host_choice" "last_index" "hostname" "line"
+        "host_count" "display_host" "action_options" "counter" "port" "counter" "host_counter" "ESC"
+        "key" "lastrow" "startrow" "host_type_choice" "idx" "opt"
+    )
+
+    for vars in assigned_vars; do
+        unset $vars
+    done
+
     exit 0
 }
 
@@ -99,6 +113,7 @@ function assign_colors() {
     fi
 }
 
+
 # Function: select_file
 # Description: This function allows the user to select a file from the list of files
 #              in the current directory
@@ -164,8 +179,11 @@ function display_help() {
 # Allow the user to build a config file with specified answers
 #   TODO: Complete this function
 function rebuild_config() {
-    echo "Rebuild Config file with answered questions"
+    color_selection=("Yes" "No")
+    printf "Would you like color output\n"
+    select_option ${color_selection[@]}
     
+    read -r "Enter the user to connect to host :" username_option
     exit 0
 }
 
@@ -174,56 +192,66 @@ function rebuild_config() {
 #              a list of hosts from it. If the file does not exist, it prompts the user 
 #              to enter a hostname manually.
 function get_host() {
-    # Check if the ${HOME}/.ssh/config file exists
-    if [ -e "$sshconfig_file" ]; then
-        # Declare an array to store host options
-        declare -a host_options=()
+    colmax=5
+    offset=$(( COLS / colmax ))
 
-        # Read each line of the ${HOME}/.ssh/config file
-        while IFS= read -r line; do
-            # Check if the line starts with "Host "
-            if [[ $line == Host* ]]; then
-                # Extract the hostname from the line and add it to the host_options array
-                host_options+=("${line#Host }")
+    # Add the "Type in Hostname" option to the host_options array
+    host_options+=("Type in Hostname")
+
+    multiselect result $colmax $offset host_options false "SELECT HOSTNAMES" 
+
+    idx=0
+    dbg=1
+    status=1
+
+    # display all of the choices
+    for option in "${host_options[@]}"; do
+        if  [[ ${result[idx]} == true ]]; then
+            if [ $dbg -eq 0 ]; then
+                    echo -e "$option\t=> ${result[idx]}"
             fi
-        done < "$sshconfig_file"
+            TARGET=$(echo "$TARGET" "${option}")
+            status=0
+        fi  
+            ((idx++))
+    done
 
-        # Add the "Type in Hostname" option to the host_options array
-        host_options+=("Type in Hostname")
-
-        # Prompt the user to select a host option
-        select_option "${host_options[@]}"
-        host_choice=$?
-        last_index=$(( ${#host_options[@]} - 1 ))  # Get the last index
-
-        # Handle the selected host option
-        case $host_choice in
-            "$last_index" )
-                # User chose the "Type in Hostname" option
-                printf "Type a %bFQDN%b or %bFQHN%b to perform an action with\n" "${light_yellow}" "${default}" "${light_yellow}" "${default}"
-                printf "%b═══════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-
-                read -p "Enter the host name: " custom_option
-                hostname="$custom_option"
-                return
-                ;;
-            * )
-                # User chose a specific host option from the list
-                printf "%b%s%b was selected\n" "${light_yellow}" "${host_options[$host_choice]}" "${default}"
-                printf "%b═══════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                hostname="${host_options[$host_choice]}"
-                return
-                ;;
-        esac
+    if [ $status -eq 0 ] ; then
+        host_array=${TARGET}
+        echo "Working with: ${host_array[@]}"
     else
-        # The ${HOME}/.ssh/config file does not exist
-        printf "Type a %bFQDN%b or %bFQHN%b to perform an action with\n" "${light_yellow}" "${default}" "${light_yellow}" "${default}"
-        printf "%b═══════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-
-        read -p "Enter the host name: " custom_option
-        hostname="$custom_option"
-        return
+        echo -e "$light_green No items selected... $default"
+        exit 0
     fi
+
+    # idx=0
+    # for option in "${multi_options[@]}"; do
+    #     host_array+=(${result[idx]})
+    #     # echo -e "${result[idx]}"
+    #     ((idx++))
+    # done
+
+    last_index=$(( ${#host_options[@]} - 1 ))  # Get the last index
+
+    # Handle the selected host option
+    case $host_choice in
+        "$last_index" )
+            # User chose the "Type in Hostname" option
+            printf "Type a %bFQDN%b or %bFQHN%b to perform an action with\n" "${light_yellow}" "${default}" "${light_yellow}" "${default}"
+            printf "%b═══════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+
+            read -p "Enter the host name: " custom_option
+            hostname="$custom_option"
+            return
+            ;;
+        * )
+            # User chose a specific host option from the list
+            printf "%b%s%b was selected\n" "${light_yellow}" "${host_options[$host_choice]}" "${default}"
+            printf "%b═══════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+            hostname="${host_options[$host_choice]}"
+            return
+            ;;
+    esac
 }
 
 # Function: get_host_file
@@ -241,6 +269,10 @@ function get_host_file() {
     done < "${search_dir[$file_choice]}"
 
     return
+}
+
+function line() {
+    printf -v _L %$2s; printf -- "${_L// /$1}";
 }
 
 # Get the user from the config file, and ask if it needs to
@@ -262,18 +294,38 @@ function get_identity {
     return
 }
 
+function save_tmp(){
+    echo "$1" > "$tmpfile"
+    chmod 600 "$tmpfile"
+}
+
+function new_list() {
+    list=(); match=
+    for item in "${selected_list[@]}" "${fullist[@]}"; {
+        case         $item:$match    in
+                 *{\ *\ }*:1) break  ;;
+           *{\ $filter\ }*:*) match=1;;
+        esac
+        [[ $match ]] && list+=( "$item" )
+    }
+    [[ $filter =~ Selected ]] && return
+    [[ ${list[*]} ]] && save_tmp "filter='$filter'" || { list=( "${fullist[@]}" ); rm "$tmpfile"; }
+}
+
 # Function: get_action
 # Description: This function prompts the user to select an action to perform on the 
 #              host(s) and performs the selected action.
 function get_action {
-    # Does hostname have a value, if not then host_array should
+    # Does hostname have a value, if not then host_array should have value
     if [ "${hostname}" = "" ]; then
         host_count=${#host_array[@]}
 
         display_host="${host_count} host"
+
         if [[ $host_count -ne 1 ]]; then
             display_host+="s"
         fi
+
         display_host+=" in ${search_dir[$file_choice]}"
     else
         display_host=$hostname
@@ -300,47 +352,58 @@ function get_action {
     select_option "${action_options[@]}"
     action_choice=$?
 
+    # Build the SSH command
+    if [ "${identity_file}" = "" ]; then
+        ssh_identity=" "
+    else
+        ssh_identity="-i ${identity_file} "
+    fi
+
+    if [ "${username}" = "" ]; then
+        username=${USER}
+    fi
+
     case "$action_choice" in
         0) # Shell to host
             clear
             counter=0
+            host_counter=1
 
-            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
-            printf "%s to %s\n" "${action_options[$action_choice]}" "${display_host}"
-            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
             if [[ $host_count -gt 0 ]]; then
                 # More than one host, loop through them
                 for hostname in "${host_array[@]}"; do
-                    # Build the SSH command
-                    if [ "${identity_file}" = "" ]; then
-                        ssh_identity=" "
-                    else
-                        ssh_identity="-i ${identity_file}"
-                    fi
-
-                    if [ "${username}" = "" ]; then
-                        username=${USER}
-                    fi
-
                     if [ ! "${hostname}" = "" ]; then
-                        ping -c 1 "${hostname}" >/dev/null 2>&1
-                        if [[ $? -eq 0 ]]; then      
-                            ssh "${ssh_identity}${username}@${hostname}:${port}"
-                        else
-                            printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
-                            ((counter++))
-                        fi
+                        # Test if the hostname is accessable
+                        # ping -c 1 "${hostname}" >/dev/null 2>&1
+                        # if [[ $? -eq 0 ]]; then
+                            clear
+                            printf "Connecting to %b%s%b using port %b%s%b and identity file %b%s%b with user %b%s%b\n" "${light_red}" "${hostname}" "${default}" "${light_cyan}" "${port}" "${default}" "${light_blue}" "${ssh_identity}" "${default}" "${white}" "${username}" "${default}"
+                            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
+                            printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
+                            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+                            ssh -F ${sshconfig_file} -p ${port} ${ssh_identity}${username}@${hostname}
+                            ((host_counter++))
+                        # else
+                        #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
+                        #     ((counter++))
+                        # fi
                     fi
                 done
             else
-                ping -c 1 "${hostname}" >/dev/null 2>&1
-                if [[ $? -eq 0 ]]; then      
-                    ssh "${ssh_identity}${username}@${hostname}:${port}"
-                else
-                    printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
-                    ((counter++))
-                fi
+                # ping -c 1 "${hostname}" >/dev/null 2>&1
+                # if [[ $? -eq 0 ]]; then      
+                    clear
+                    printf "Connecting to %b%s%b using port %b%s%b and identity file %b%s%b with user %b%s%b\n" "${light_red}" "${hostname}" "${default}" "${light_cyan}" "${port}" "${default}" "${light_blue}" "${ssh_identity}" "${default}" "${white}" "${username}" "${default}"
+                    printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
+                    printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
+                    printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+                    ssh -F ${sshconfig_file} -p ${port} ${ssh_identity}${username}@${hostname}
+                # else
+                #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
+                #     ((counter++))
+                # fi
             fi
+            
             if [ ${counter} -eq 1 ]; then
                 counted_hosts="host"
             else
@@ -352,43 +415,38 @@ function get_action {
         1) # Copy SSH Key
             clear
             counter=0
+            host_counter=1
 
-            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
-            printf "%s to %s\n" "${action_options[$action_choice]}" "${display_host}"
-            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
             if [[ $host_count -gt 0 ]]; then
                 # More than one host, loop through them
                 for hostname in "${host_array[@]}"; do
-                    # Build the SSH command
-                    if [ "${identity_file}" = "" ]; then
-                        ssh_identity=" "
-                    else
-                        ssh_identity="-f ${identity_file}"
-                    fi
-
-                    if [ "${username}" = "" ]; then
-                        username=${USER}
-                    fi
-
                     if [ ! "${hostname}" = "" ]; then
-                        ping -c 1 "${hostname}" >/dev/null 2>&1
-                        if [[ $? -eq 0 ]]; then      
-                            ssh-copy-id -p "${port}" "${ssh_identity}${username}@${hostname}"
-                        else
-                            printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
-                            ((counter++))
-                        fi
+                        # ping -c 1 "${hostname}" >/dev/null 2>&1
+                        # if [[ $? -eq 0 ]]; then
+                            clear
+                            printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
+                            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+                            ssh-copy-id -o StrictHostKeychecking=no -p ${port} ${ssh_identity}${hostname}
+                            ((host_counter++))
+                        # else
+                        #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
+                        #     ((counter++))
+                        # fi
                     fi
                 done
             else
                 ping -c 1 "${hostname}" >/dev/null 2>&1
-                if [[ $? -eq 0 ]]; then      
-                    ssh-copy-id -p "${port}" "${ssh_identity}${username}@${hostname}"
-                else
-                    printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
-                    ((counter++))
-                fi
+                # if [[ $? -eq 0 ]]; then
+                    clear
+                    printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
+                    printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+                    ssh-copy-id -o StrictHostKeychecking=no -p ${port} ${ssh_identity}${hostname}
+                # else
+                #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
+                #     ((counter++)) 
+                # fi
             fi
+            
             if [ ${counter} -eq 1 ]; then
                 counted_hosts="host"
             else
@@ -398,56 +456,95 @@ function get_action {
             printf "%b%s %b%s%b could not connect\n\n" "${light_red}" "${counter}" "${white}" "${counted_hosts}" "${default}"
             ;;
         2) # Check Security Updates
-            echo "Index ${action_choice} is ${action_options[$action_choice]} to $display_host"
-            if [[ $host_count -gt 1 ]]; then
+            clear
+            counter=0
+            host_counter=1
+
+            if [[ $host_count -gt 0 ]]; then
                 # More than one host, loop through them
                 for hostname in "${host_array[@]}"; do
-                    # Build the SSH command
-                    if [ "${identity_file}" = "" ]; then
-                        ssh_identity=" "
-                    else
-                        ssh_identity="-i ${identity_file}"
-                    fi
-
-                    if [ "${username}" = "" ]; then
-                        username=${USER}
-                    fi
-
-                    ping -c 1 "${hostname}" >/dev/null 2>&1
-                    if [[ $? -eq 0 ]]; then      
-                        ssh -p "${port} ${ssh_identity}${username}@${hostname}" "yum security --check-update > ${hostname}_checkupdate_$(date 'Ymd')"
-                    else
-                        echo "Unable to reach ${hostname}"
+                    if [ ! "${hostname}" = "" ]; then
+                        # ping -c 1 "${hostname}" >/dev/null 2>&1
+                        # if [[ $? -eq 0 ]]; then
+                            clear
+                            printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
+                            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+                            ssh -F ${sshconfig_file} -p ${port} ${ssh_identity}${username}@${hostname} "sudo yum --security check-update > ${hostname}_security_check_update_$(date +"%Y-%m-%d").log"
+                            scp -F ${sshconfig_file} -P ${port} ${ssh_identity}${username}@${hostname}:~/${hostname}_security_check_update_$(date +"%Y-%m-%d").log ./reports/
+                            ((host_counter++))
+                        # else
+                        #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
+                        #     ((counter++))
+                        # fi
                     fi
                 done
+            else
+                ping -c 1 "${hostname}" >/dev/null 2>&1
+                # if [[ $? -eq 0 ]]; then
+                    clear
+                    printf "%s to %b%s%b (%b%s%b of %b1%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${default}"
+                    printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+                    ssh -F ${sshconfig_file} -p ${port} ${ssh_identity}${username}@${hostname} "sudo yum --security check-update  > $(hostname -s)_security_check_update_$(date +"%Y-%m-%d").log"
+                    scp -F ${sshconfig_file} -p ${port} ${ssh_identity}${username}@${hostname}:~/${hostname}_security_check_update_$(date +"%Y-%m-%d").log ./reports/
+                # else
+                #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
+                #     ((counter++))
+                # fi
             fi
+            
+            if [ ${counter} -eq 1 ]; then
+                counted_hosts="host"
+            else
+                counted_hosts="hosts"
+            fi
+
+            printf "%b%s %b%s%b could not connect\n\n" "${light_red}" "${counter}" "${white}" "${counted_hosts}" "${default}"
             ;;
         3) # Refresh Subscription Manager
-            echo "Index ${action_choice} is ${action_options[$action_choice]} to $display_host"
-            if [[ $host_count -gt 1 ]]; then
+            clear
+            counter=0
+            host_counter=1
+
+            if [[ $host_count -gt 0 ]]; then
                 # More than one host, loop through them
                 for hostname in "${host_array[@]}"; do
-                    # Build the SSH command
-                    if [ "${identity_file}" = "" ]; then
-                        ssh_identity=" "
-                    else
-                        ssh_identity="-i ${identity_file}"
-                    fi
-
-                    if [ "${username}" = "" ]; then
-                        username=${USER}
-                    fi
-
-                    ping -c 1 "${hostname}" >/dev/null 2>&1
-                    if [[ $? -eq 0 ]]; then      
-                        echo "ssh -p ${port} ${ssh_identity}${username}@${hostname}"
-                    else
-                        echo "Unable to reach ${hostname}"
+                    if [ ! "${hostname}" = "" ]; then
+                        # ping -c 1 "${hostname}" >/dev/null 2>&1
+                        # if [[ $? -eq 0 ]]; then
+                            clear
+                            printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
+                            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+                            ssh -F ${sshconfig_file} -p ${port} ${ssh_identity}${username}@${hostname} "sudo subscription-manager refresh"
+                            ((host_counter++))
+                        # else
+                        #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
+                        #     ((counter++))
+                        # fi
                     fi
                 done
+            else
+                ping -c 1 "${hostname}" >/dev/null 2>&1
+                # if [[ $? -eq 0 ]]; then
+                    clear
+                    printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
+                    printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+                    ssh -F ${sshconfig_file} -p ${port} ${ssh_identity}${username}@${hostname} "sudo subscription-manager refresh"
+                # else
+                #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
+                #     ((counter++))
+                # fi
             fi
+
+            if [ ${counter} -eq 1 ]; then
+                counted_hosts="host"
+            else
+                counted_hosts="hosts"
+            fi
+
+            printf "%b%s %b%s%b could not connect\n\n" "${light_red}" "${counter}" "${white}" "${counted_hosts}" "${default}"
             ;;
-        4) # Copy File
+        4)
+             # Copy File
             echo "Index ${action_choice} is ${action_options[$action_choice]} to $display_host"
             if [[ $host_count -gt 1 ]]; then
                 # More than one host, loop through them
@@ -629,7 +726,7 @@ function get_action {
                 done
             fi
             ;;
-        11)
+        11) # Exit Remote Admin
             bye
             ;;
         *)
@@ -827,7 +924,11 @@ function multiselect {
 #              one option. It handles the user's key inputs and returns the index of 
 #              the selected option.
 function select_option {
-    ESC=$( printf "\033")
+    stty sane
+    if [ -e $ESC ]; then
+        local ESC=$( printf "\033")
+    fi
+
     cursor_blink_on()  { printf "%b" "\033[?25h"; }
     cursor_blink_off() { printf "%b" "\033[?25l"; }
     cursor_to()        { printf "%b" "\033[$1;${2:-1}H"; }
@@ -843,8 +944,8 @@ function select_option {
     for opt; do printf "\n"; done
 
     # determine current screen position for overwriting the options
-    lastrow=$(get_cursor_row)
-    startrow=$((lastrow - $#))
+    local lastrow=$(get_cursor_row)
+    local startrow=$((lastrow - $#))
 
     # ensure cursor and input echoing back on upon a ctrl+c during read -s
     trap "cursor_blink_on; stty echo; printf '\n'; exit" 2
@@ -882,48 +983,47 @@ function select_option {
     return $selected
 }
 
-
 clear
+
+# Description: Open the ssh config file, look for any includes, and include each file, seperate
+#              all hosts, place them into an array.
+desclength=20
+declare -A hostnames
+while read -r name hostname desc; do
+    case    ${name,,} in
+        'group_name') name="{ $desc }"
+            name_length=${#name}
+            name_left=$[(40-name_length)/2]
+            name_right=$[40-(name_left+name_length)]
+            printf -v tmp "%${name_left}s_NAME_%${name_right}s"
+            tmp=${tmp// /-}  name=${tmp//_NAME_/$name}
+            content+=( "$desc" );  desc='_LINE_';;
+        '#'*) continue;;
+    esac
+
+    hostnames["$name"]=$hostname #Create host-hostname pairs in hostnames array
+    fullist+=("$name")   #Add Host and Description to the list
+done < <(gawk '
+BEGIN{IGNORECASE=1}
+/^Host /{
+    strt=1
+    host=$2
+    next
+}
+strt && /HostName /{
+    hostname=$2
+    print host, hostname, desc
+    strt=0
+}'  $CONFILES)
+
+# Assign all hosts found to a variable
+host_options=( "${fullist[@]}" )
 
 # Check if no command-line arguments are provided
 if [[ $# -eq 0 ]]; then
     # Configuration and color assignment
     config
     assign_colors
-
-    # Dynamically add a bunch of choices to select
-    for ((i=0; i<57; i++)); do
-        _list[i]="Choice $i"
-        _preselection_list[i]=false
-    done
-
-    colmax=4
-    offset=$(( COLS / colmax ))
-    multiselect result $colmax $offset _list _preselection_list "CHOICE OF REPOSITORY" 
-
-    idx=0
-    dbg=1
-    status=1
-
-    # display all of the choices
-    for option in "${_list[@]}"; do
-        if  [[ ${result[idx]} == true ]]; then
-            if [ $dbg -eq 0 ]; then
-                    echo -e "$option\t=> ${result[idx]}"
-            fi
-            TARGET=$(echo "$TARGET" "${option}")
-            status=0
-        fi  
-            ((idx++))
-    done
-
-    if [ $status -eq 0 ] ; then
-        echo -e "$light_green Selection of items:\n$light_green $TARGET $default"
-    else
-        echo -e "$light_green No items selected... $default"
-        exit
-    fi
-
 
     # Prompt the user to select a host or host file
     printf "A %bhost%b or %bhost file%b was not specified, choose if you want to select a specific host, or a multiple hosts\n" "${light_yellow}" "${default}" "${light_yellow}" "${default}"
