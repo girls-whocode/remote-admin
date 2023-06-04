@@ -2,13 +2,13 @@
 # shellcheck disable=SC2034  # Unused variables left for readability
 # shellcheck disable=SC2162  # Backslashes are used for ESC characters
 # shellcheck disable=SC2181  # mycmd #? is used for return value of ping
+
 app_name="Remote Admin"
 script_name="remote_admin.sh"
 app_ver="1.0"
 config_file="remote-admin.conf"
 config_path="./"
 tmpfile=/tmp/sshtorc-${USER}
-CONFILES=$(shopt -s nullglob; echo ~/.ssh/{config,config*[!~],config*[!~]/*})
 search_dir=(*)
 LINES=$( tput lines )
 COLS=$( tput cols )
@@ -28,8 +28,8 @@ function bye {
         "key" "lastrow" "startrow" "host_type_choice" "idx" "opt"
     )
 
-    for vars in assigned_vars; do
-        unset $vars
+    for vars in assigned_vars[@]; do
+        unset "${vars}"
     done
 
     exit 0
@@ -114,6 +114,10 @@ function assign_colors() {
 }
 
 
+pause() {
+    read -rp "Press Enter to continue..."
+}
+
 # Function: select_file
 # Description: This function allows the user to select a file from the list of files
 #              in the current directory
@@ -181,10 +185,63 @@ function display_help() {
 function rebuild_config() {
     color_selection=("Yes" "No")
     printf "Would you like color output\n"
-    select_option ${color_selection[@]}
+    select_option "${color_selection[@]}"
     
     read -r "Enter the user to connect to host :" username_option
     exit 0
+}
+
+# Function: select_hosts function
+# Description: Prompts the user to select hostnames from the host_options array and 
+#              assigns the selected hostnames to the host_array variable. # If the
+#              user selects the "Type in # Hostname" option, it prompts the user to 
+#              enter a custom hostname.
+function select_hosts() {
+    declare -A target
+    colmax=5
+    offset=$(( COLS / colmax ))
+    idx=0
+    dbg=0
+    status=1
+
+    # Add the "Type in Hostname" option to the host_options array
+    multiselect result $colmax $offset host_options preselection "SELECT HOSTNAMES" 
+
+    # display all of the choices
+    for option in "${host_options[@]}"; do
+        if  [[ ${result[idx]} == true ]]; then
+            if [ $dbg -eq 1 ]; then
+                echo -e "$option\t=> ${result[idx]}"
+                pause
+            fi
+            target+=("${option}")
+            status=0
+        fi  
+        ((idx++))
+    done
+
+    mapfile -t array <<< "${target}"
+
+    if [ $status -eq 0 ] ; then
+        host_array=("${target[@]}")
+    else
+        echo -e "$light_green No items selected... $default"
+        exit 0
+    fi
+
+    return
+}
+
+# Function: type_host function
+# Description: Prompts the user to type in a hostname to
+function type_host() {
+    # User chose the "Type in Hostname" option
+    printf "Type a %bFQDN%b or %bFQHN%b to perform an action with\n" "${light_yellow}" "${default}" "${light_yellow}" "${default}"
+    printf "%b═══════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+
+    read -p "Enter the host name: " custom_option
+    hostname="$custom_option"
+    return
 }
 
 # Function: get_host
@@ -192,66 +249,46 @@ function rebuild_config() {
 #              a list of hosts from it. If the file does not exist, it prompts the user 
 #              to enter a hostname manually.
 function get_host() {
-    colmax=5
-    offset=$(( COLS / colmax ))
+    # Description: Open the ssh config file, look for any includes, and include each file, seperate
+    #              all hosts, place them into an array.
+    CONFILES=$(shopt -s nullglob; echo ~/.ssh/{config,config*[!~],config*[!~]/*})
 
-    # Add the "Type in Hostname" option to the host_options array
-    host_options+=("Type in Hostname")
+    desclength=20
+    declare -A hostnames
+    while read -r name hostname desc; do
+        case    ${name,,} in
+            'group_name') name="{ $desc }"
+                name_length=${#name}
+                name_left=$(( (40 - name_length) / 2 ))
+                name_right=$(( 40 - name_left + name_length ))
+                printf -v tmp "%${name_left}s_NAME_%${name_right}s"
+                tmp=${tmp// /-}  name=${tmp//_NAME_/$name}
+                content+=( "$desc" );  desc='_LINE_';;
+            '#'*) continue;;
+        esac
 
-    multiselect result $colmax $offset host_options false "SELECT HOSTNAMES" 
+        hostnames["$name"]=$hostname #Create host-hostname pairs in hostnames array
+        fullist+=("$name")   #Add Host and Description to the list
+    done < <(gawk '
+    BEGIN{IGNORECASE=1}
+    /^Host /{
+        strt=1
+        host=$2
+        next
+    }
+    strt && /HostName /{
+        hostname=$2
+        print host, hostname, desc
+        strt=0
+    }'  "$CONFILES")
 
-    idx=0
-    dbg=1
-    status=1
+    # Assign all hosts found to a variable
+    host_options=( "${fullist[@]}" )
+    preselection=false
+    search_dir[file_choice]="ssh config file"
 
-    # display all of the choices
-    for option in "${host_options[@]}"; do
-        if  [[ ${result[idx]} == true ]]; then
-            if [ $dbg -eq 0 ]; then
-                    echo -e "$option\t=> ${result[idx]}"
-            fi
-            TARGET=$(echo "$TARGET" "${option}")
-            status=0
-        fi  
-            ((idx++))
-    done
-
-    if [ $status -eq 0 ] ; then
-        host_array=${TARGET}
-        echo "Working with: ${host_array[@]}"
-    else
-        echo -e "$light_green No items selected... $default"
-        exit 0
-    fi
-
-    # idx=0
-    # for option in "${multi_options[@]}"; do
-    #     host_array+=(${result[idx]})
-    #     # echo -e "${result[idx]}"
-    #     ((idx++))
-    # done
-
-    last_index=$(( ${#host_options[@]} - 1 ))  # Get the last index
-
-    # Handle the selected host option
-    case $host_choice in
-        "$last_index" )
-            # User chose the "Type in Hostname" option
-            printf "Type a %bFQDN%b or %bFQHN%b to perform an action with\n" "${light_yellow}" "${default}" "${light_yellow}" "${default}"
-            printf "%b═══════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-
-            read -p "Enter the host name: " custom_option
-            hostname="$custom_option"
-            return
-            ;;
-        * )
-            # User chose a specific host option from the list
-            printf "%b%s%b was selected\n" "${light_yellow}" "${host_options[$host_choice]}" "${default}"
-            printf "%b═══════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-            hostname="${host_options[$host_choice]}"
-            return
-            ;;
-    esac
+    select_hosts
+    return
 }
 
 # Function: get_host_file
@@ -259,16 +296,23 @@ function get_host() {
 #              reads the selected file. It reads each line from the file and adds it 
 #              to the `host_array` array.
 function get_host_file() {
+    declare -A preselection
     select_file
 
-    # Read each non-empty line from the selected file and add it to the host_array array
+    # Read each non-empty line from the selected file and add it to the host_options array
     while IFS= read -r line; do
         if [[ -n $line ]]; then
-            host_array+=("$line")
+            host_options+=("$line")
         fi
     done < "${search_dir[$file_choice]}"
+    host_count=${#host_options[@]}
+    
+    for ((i=0; i<host_count; i++)); do
+        preselection[$i]=true
+        echo $i
+    done
 
-    return
+    select_hosts
 }
 
 function line() {
@@ -294,24 +338,6 @@ function get_identity {
     return
 }
 
-function save_tmp(){
-    echo "$1" > "$tmpfile"
-    chmod 600 "$tmpfile"
-}
-
-function new_list() {
-    list=(); match=
-    for item in "${selected_list[@]}" "${fullist[@]}"; {
-        case         $item:$match    in
-                 *{\ *\ }*:1) break  ;;
-           *{\ $filter\ }*:*) match=1;;
-        esac
-        [[ $match ]] && list+=( "$item" )
-    }
-    [[ $filter =~ Selected ]] && return
-    [[ ${list[*]} ]] && save_tmp "filter='$filter'" || { list=( "${fullist[@]}" ); rm "$tmpfile"; }
-}
-
 # Function: get_action
 # Description: This function prompts the user to select an action to perform on the 
 #              host(s) and performs the selected action.
@@ -319,7 +345,6 @@ function get_action {
     # Does hostname have a value, if not then host_array should have value
     if [ "${hostname}" = "" ]; then
         host_count=${#host_array[@]}
-
         display_host="${host_count} host"
 
         if [[ $host_count -ne 1 ]]; then
@@ -327,6 +352,7 @@ function get_action {
         fi
 
         display_host+=" in ${search_dir[$file_choice]}"
+        # host_array=("${host_options[@]}")
     else
         display_host=$hostname
     fi
@@ -365,7 +391,7 @@ function get_action {
 
     case "$action_choice" in
         0) # Shell to host
-            clear
+            # clear
             counter=0
             host_counter=1
 
@@ -381,7 +407,7 @@ function get_action {
                             printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
                             printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
                             printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                            ssh -F ${sshconfig_file} -p ${port} ${ssh_identity}${username}@${hostname}
+                            ssh -F "${sshconfig_file}" -p "${port}" "${ssh_identity}${username}@${hostname}"
                             ((host_counter++))
                         # else
                         #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
@@ -397,7 +423,7 @@ function get_action {
                     printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
                     printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
                     printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                    ssh -F ${sshconfig_file} -p ${port} ${ssh_identity}${username}@${hostname}
+                    ssh -F "${sshconfig_file}" -p "${port}" "${ssh_identity}${username}@${hostname}"
                 # else
                 #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
                 #     ((counter++))
@@ -426,7 +452,7 @@ function get_action {
                             clear
                             printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
                             printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                            ssh-copy-id -o StrictHostKeychecking=no -p ${port} ${ssh_identity}${hostname}
+                            ssh-copy-id -o StrictHostKeychecking=no -p "${port}" "${ssh_identity}${hostname}"
                             ((host_counter++))
                         # else
                         #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
@@ -440,7 +466,7 @@ function get_action {
                     clear
                     printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
                     printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                    ssh-copy-id -o StrictHostKeychecking=no -p ${port} ${ssh_identity}${hostname}
+                    ssh-copy-id -o StrictHostKeychecking=no -p "${port}" "${ssh_identity}${hostname}"
                 # else
                 #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
                 #     ((counter++)) 
@@ -469,8 +495,8 @@ function get_action {
                             clear
                             printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
                             printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                            ssh -F ${sshconfig_file} -p ${port} ${ssh_identity}${username}@${hostname} "sudo yum --security check-update > ${hostname}_security_check_update_$(date +"%Y-%m-%d").log"
-                            scp -F ${sshconfig_file} -P ${port} ${ssh_identity}${username}@${hostname}:~/${hostname}_security_check_update_$(date +"%Y-%m-%d").log ./reports/
+                            ssh -F "${sshconfig_file}" -p "${port}" "${ssh_identity}${username}@${hostname}" "sudo yum --security check-update > ${hostname}_security_check_update_$(date +"%Y-%m-%d").log"
+                            scp -F "${sshconfig_file}" -P "${port}" "${ssh_identity}${username}@${hostname}:~/${hostname}_security_check_update_$(date +"%Y-%m-%d").log" ./reports/
                             ((host_counter++))
                         # else
                         #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
@@ -484,8 +510,8 @@ function get_action {
                     clear
                     printf "%s to %b%s%b (%b%s%b of %b1%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${default}"
                     printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                    ssh -F ${sshconfig_file} -p ${port} ${ssh_identity}${username}@${hostname} "sudo yum --security check-update  > $(hostname -s)_security_check_update_$(date +"%Y-%m-%d").log"
-                    scp -F ${sshconfig_file} -p ${port} ${ssh_identity}${username}@${hostname}:~/${hostname}_security_check_update_$(date +"%Y-%m-%d").log ./reports/
+                    ssh -F "${sshconfig_file}" -p "${port}" "${ssh_identity}${username}@${hostname}" "sudo yum --security check-update > $(hostname -s)_security_check_update_$(date +"%Y-%m-%d").log"
+                    scp -F "${sshconfig_file}" -p "${port}" "${ssh_identity}${username}@${hostname}:~/${hostname}_security_check_update_$(date +"%Y-%m-%d").log" ./reports/
                 # else
                 #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
                 #     ((counter++))
@@ -735,6 +761,8 @@ function get_action {
     esac
 }
 
+# Function: multiselect
+# Description: 
 function multiselect {
     ESC=$(printf "\033")
     cursor_blink_on()   { printf "%b" "${ESC}[?25h"; }
@@ -985,40 +1013,6 @@ function select_option {
 
 clear
 
-# Description: Open the ssh config file, look for any includes, and include each file, seperate
-#              all hosts, place them into an array.
-desclength=20
-declare -A hostnames
-while read -r name hostname desc; do
-    case    ${name,,} in
-        'group_name') name="{ $desc }"
-            name_length=${#name}
-            name_left=$[(40-name_length)/2]
-            name_right=$[40-(name_left+name_length)]
-            printf -v tmp "%${name_left}s_NAME_%${name_right}s"
-            tmp=${tmp// /-}  name=${tmp//_NAME_/$name}
-            content+=( "$desc" );  desc='_LINE_';;
-        '#'*) continue;;
-    esac
-
-    hostnames["$name"]=$hostname #Create host-hostname pairs in hostnames array
-    fullist+=("$name")   #Add Host and Description to the list
-done < <(gawk '
-BEGIN{IGNORECASE=1}
-/^Host /{
-    strt=1
-    host=$2
-    next
-}
-strt && /HostName /{
-    hostname=$2
-    print host, hostname, desc
-    strt=0
-}'  $CONFILES)
-
-# Assign all hosts found to a variable
-host_options=( "${fullist[@]}" )
-
 # Check if no command-line arguments are provided
 if [[ $# -eq 0 ]]; then
     # Configuration and color assignment
@@ -1026,9 +1020,9 @@ if [[ $# -eq 0 ]]; then
     assign_colors
 
     # Prompt the user to select a host or host file
-    printf "A %bhost%b or %bhost file%b was not specified, choose if you want to select a specific host, or a multiple hosts\n" "${light_yellow}" "${default}" "${light_yellow}" "${default}"
-    printf "%b════════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-    host_type=("Single Host" "Multiple Hosts with a file")
+    printf "A %bhost%b or %bhost file%b was not specified, choose if you want to select a specific hosts, or a multiple hosts\n" "${light_yellow}" "${default}" "${light_yellow}" "${default}"
+    printf "%b══════════════════════════════════════════════════════════════════════════════════════════=══════════════%b\n\n" "${dark_gray}" "${default}"
+    host_type=("Hosts from config" "Hosts from a file" "Type in a hostname")
     select_option "${host_type[@]}"
     host_type_choice=$?
 
@@ -1039,8 +1033,8 @@ if [[ $# -eq 0 ]]; then
         1)
             get_host_file
             ;;
-        *)
-            echo "Invalid Choice"
+        2)
+            type_host
             ;;
     esac
 
