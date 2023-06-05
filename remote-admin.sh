@@ -117,8 +117,10 @@ function assign_colors() {
     fi
 }
 
-
-pause() {
+# Function: pause
+# Description: This function allows the script to stop running and wait for the user
+#              to press the enter key before continuing.
+function pause() {
     read -rp "Press Enter to continue..."
 }
 
