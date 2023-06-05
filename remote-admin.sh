@@ -8,10 +8,14 @@ script_name="remote_admin.sh"
 app_ver="1.0"
 config_file="remote-admin.conf"
 config_path="./"
-tmpfile=/tmp/sshtorc-${USER}
+tmpfile=sshtorc-${USER}
 search_dir=(*)
 LINES=$( tput lines )
 COLS=$( tput cols )
+# Description: Open the ssh config file, look for any includes, and include each file, seperate
+#              all hosts, place them into an array.
+CONFILES=$(shopt -s nullglob; echo ~/.ssh/{config,config*[!~],config*[!~]/*})
+# CONFILES=$(find ~/.ssh/ -type f -name 'config*')
 
 # Function: bye
 # Description: Close remote-admin and clean up any set variables left behind. Display
@@ -249,12 +253,9 @@ function type_host() {
 #              a list of hosts from it. If the file does not exist, it prompts the user 
 #              to enter a hostname manually.
 function get_host() {
-    # Description: Open the ssh config file, look for any includes, and include each file, seperate
-    #              all hosts, place them into an array.
-    CONFILES=$(shopt -s nullglob; echo ~/.ssh/{config,config*[!~],config*[!~]/*})
-
     desclength=20
     declare -A hostnames
+
     while read -r name hostname desc; do
         case    ${name,,} in
             'group_name') name="{ $desc }"
@@ -280,7 +281,7 @@ function get_host() {
         hostname=$2
         print host, hostname, desc
         strt=0
-    }'  "$CONFILES")
+    }' $CONFILES)
 
     # Assign all hosts found to a variable
     host_options=( "${fullist[@]}" )
@@ -317,6 +318,24 @@ function get_host_file() {
 
 function line() {
     printf -v _L %$2s; printf -- "${_L// /$1}";
+}
+
+function save_tmp(){
+    echo "$1" > "$tmpfile"
+    chmod 600 "$tmpfile"
+}
+
+function new_list() {
+    list=(); match=
+    for item in "${selected_list[@]}" "${fullist[@]}"; {
+        case         $item:$match    in
+                 *{\ *\ }*:1) break  ;;
+           *{\ $filter\ }*:*) match=1;;
+        esac
+        [[ $match ]] && list+=( "$item" )
+    }
+    [[ $filter =~ Selected ]] && return
+    [[ ${list[*]} ]] && save_tmp "filter='$filter'" || { list=( "${fullist[@]}" ); rm "$tmpfile"; }
 }
 
 # Get the user from the config file, and ask if it needs to
@@ -391,7 +410,7 @@ function get_action {
 
     case "$action_choice" in
         0) # Shell to host
-            # clear
+            clear
             counter=0
             host_counter=1
 
