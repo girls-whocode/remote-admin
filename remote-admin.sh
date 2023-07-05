@@ -3,6 +3,18 @@
 # shellcheck disable=SC2162  # Backslashes are used for ESC characters
 # shellcheck disable=SC2181  # mycmd #? is used for return value of ping
 
+# TODO: Figure out a way to identify PROD servers. PROD servers require a jumpbox to connect
+#       currently it is using the config file in the .ssh folder to identify by host name.
+#       IDEA: in the server files, have: hostname,ip,environment,user,identity
+# TODO: SSH in host file
+# TODO: Display a nice goodbye message
+# TODO: Need to have the ability to traverse directories
+# TODO: Need the ability for the user to type in a directory and or file
+# TODO: Complete the rebuild configuration function
+# TODO: Complete the get user function
+# TODO: Complete the get identity function
+# TODO: Clean up, and have a nice display for the help system
+
 app_name="Remote Admin"
 script_name="remote_admin.sh"
 app_ver="1.0"
@@ -12,15 +24,14 @@ tmpfile=sshtorc-${USER}
 search_dir=(*)
 LINES=$( tput lines )
 COLS=$( tput cols )
+
 # Description: Open the ssh config file, look for any includes, and include each file, seperate
 #              all hosts, place them into an array.
 CONFILES=$(shopt -s nullglob; echo ~/.ssh/{config,config*[!~],config*[!~]/*})
-# CONFILES=$(find ~/.ssh/ -type f -name 'config*')
 
 # Function: bye
 # Description: Close remote-admin and clean up any set variables left behind. Display
 #              exit message.
-#   TODO: Display a nice goodbye message
 function bye {
     assigned_vars=(
         "app_name" "script_name" "app_ver" "config_file" "config_path" "sshconfig_file" "search_dir"
@@ -127,8 +138,6 @@ function pause() {
 # Function: select_file
 # Description: This function allows the user to select a file from the list of files
 #              in the current directory
-#   TODO: Need to have the ability to traverse directories
-#   TODO: Need the ability for the user to type in a directory and or file
 function select_file() {
     # Prompt the user to select a host file
     select_option "${search_dir[@]}"
@@ -147,7 +156,6 @@ function copy_file() {
 # Function: display_help
 # Description: This function displays the help information for the script, including 
 #              available options and examples.
-#   TODO: Clean up, and have a nice display for the help system
 function display_help() {
     # Define the padding size for option descriptions
     local option_padding=25
@@ -187,7 +195,6 @@ function display_help() {
 }
 
 # Allow the user to build a config file with specified answers
-#   TODO: Complete this function
 function rebuild_config() {
     color_selection=("Yes" "No")
     printf "Would you like color output\n"
@@ -203,7 +210,7 @@ function rebuild_config() {
 #              user selects the "Type in # Hostname" option, it prompts the user to 
 #              enter a custom hostname.
 function select_hosts() {
-    declare -A target
+    target=()
     colmax=5
     offset=$(( COLS / colmax ))
     idx=0
@@ -217,7 +224,7 @@ function select_hosts() {
     for option in "${host_options[@]}"; do
         if  [[ ${result[idx]} == true ]]; then
             if [ $dbg -eq 1 ]; then
-                echo -e "$option\t=> ${result[idx]}"
+                echo "$option"
                 pause
             fi
             target+=("${option}")
@@ -225,8 +232,6 @@ function select_hosts() {
         fi  
         ((idx++))
     done
-
-    mapfile -t array <<< "${target}"
 
     if [ $status -eq 0 ] ; then
         host_array=("${target[@]}")
@@ -342,7 +347,6 @@ function new_list() {
 
 # Get the user from the config file, and ask if it needs to
 # change
-#   TODO: Complete this function
 function get_user {
     # The user is specified in the config file, use it
     echo "Get User"
@@ -352,11 +356,18 @@ function get_user {
 # Get the identity from the config file, if it is empty, ask
 # if they want to use on, else ask if they want to use the
 # identity in the config file
-#   TODO: Complete this function
 function get_identity {
     # The identity is specified in the config file, use it
     echo "Get Identity"
     return
+}
+
+function do_ssh {
+    ssh -p "${port}""${ssh_identity}" "${username}@${hostname}" "${1}"
+}
+
+function do_scp {
+    scp -qB4 -P ${port} "${username}@${hostname}:${1}" "${2}"
 }
 
 # Function: get_action
@@ -373,24 +384,27 @@ function get_action {
         fi
 
         display_host+=" in ${search_dir[$file_choice]}"
-        # host_array=("${host_options[@]}")
     else
         display_host=$hostname
     fi
 
     action_options=(
         "Shell" #0
-        "Copy SSH Key" #1
-        "Check Security Updates" #2
-        "Refresh Subscription Manager" #3
-        "Copy File" #4
-        "Get File" #5
-        "Check Memory" #6
-        "Check Disk Space" #7
-        "Check Load" #8
-        "Reboot Host" #9
-        "Shutdown Host" #10
-        "Exit ${app_name}" #11
+        "Test Connection" #1
+        "Copy SSH Key" #2
+        "Get OS Version" #3
+        "Run JetPatch Health Check" #4
+        "Check Security Updates" #5
+        "Refresh Subscription Manager" #6
+        "Deploy Security Patches" #7
+        "Copy File" #8
+        "Get File" #9
+        "Check Memory" #10
+        "Check Disk Space" #11
+        "Check Load" #12
+        "Reboot Host" #13
+        "Shutdown Host" #14
+        "Exit ${app_name}" #15
     )
 
     printf "%b%s%b\n" "${light_yellow}" "${display_host}" "${default}"
@@ -403,7 +417,7 @@ function get_action {
     if [ "${identity_file}" = "" ]; then
         ssh_identity=" "
     else
-        ssh_identity="-i ${identity_file} "
+        ssh_identity=" -i ${identity_file} "
     fi
 
     if [ "${username}" = "" ]; then
@@ -413,96 +427,230 @@ function get_action {
     case "$action_choice" in
         0) # Shell to host
             clear
+            hosts_no_connect=()
             counter=0
             host_counter=1
 
-            if [[ $host_count -gt 0 ]]; then
+            if [ "${hostname}" = "" ]; then
                 # More than one host, loop through them
                 for hostname in "${host_array[@]}"; do
                     if [ ! "${hostname}" = "" ]; then
                         # Test if the hostname is accessable
-                        # ping -c 1 "${hostname}" >/dev/null 2>&1
-                        # if [[ $? -eq 0 ]]; then
+                        ping -c 1 "${hostname}" >/dev/null 2>&1
+                        if [[ $? -eq 0 ]]; then
                             clear
-                            printf "Connecting to %b%s%b using port %b%s%b and identity file %b%s%b with user %b%s%b\n" "${light_red}" "${hostname}" "${default}" "${light_cyan}" "${port}" "${default}" "${light_blue}" "${ssh_identity}" "${default}" "${white}" "${username}" "${default}"
+                            printf "Connecting to %b%s%b using port %b%s%b \nIdentity file %b%s%b with user %b%s%b\n" "${light_red}" "${hostname}" "${default}" "${light_cyan}" "${port}" "${default}" "${light_blue}" "${ssh_identity}" "${default}" "${white}" "${username}" "${default}"
                             printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
                             printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
                             printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                            ssh -F "${sshconfig_file}" -p "${port}" "${ssh_identity}${username}@${hostname}"
+                            do_ssh
                             ((host_counter++))
-                        # else
-                        #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
-                        #     ((counter++))
-                        # fi
+                        else
+                            hosts_no_connect+=("${hostname}")
+                            ((counter++))
+                        fi
                     fi
                 done
             else
-                # ping -c 1 "${hostname}" >/dev/null 2>&1
-                # if [[ $? -eq 0 ]]; then      
+                # Test if the hostname is accessable
+                ping -c 1 "${hostname}" >/dev/null 2>&1
+                if [[ $? -eq 0 ]]; then      
                     clear
                     printf "Connecting to %b%s%b using port %b%s%b and identity file %b%s%b with user %b%s%b\n" "${light_red}" "${hostname}" "${default}" "${light_cyan}" "${port}" "${default}" "${light_blue}" "${ssh_identity}" "${default}" "${white}" "${username}" "${default}"
                     printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
                     printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
                     printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                    ssh -F "${sshconfig_file}" -p "${port}" "${ssh_identity}${username}@${hostname}"
-                # else
-                #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
-                #     ((counter++))
-                # fi
+                    do_ssh
+                else
+                    hosts_no_connect+=("${hosts_no_connect}")
+                    ((counter++))
+                fi
             fi
             
-            if [ ${counter} -eq 1 ]; then
-                counted_hosts="host"
-            else
-                counted_hosts="hosts"
-            fi
+            [ ${counter} -eq 1 ] && counted_hosts="host" || counted_hosts="hosts"
+            printf "%b%s%b connected, %b%s %b%s%b could not connect\n\n" "${light_red}" "${host_counter}" "${white}" "${light_red}" "${counter}" "${white}" "${counted_hosts}" "${default}"
 
-            printf "%b%s %b%s%b could not connect\n\n" "${light_red}" "${counter}" "${white}" "${counted_hosts}" "${default}"
+            if [ ! ${#hosts_no_connect[@]} -eq 0 ]; then
+                echo -e "${light_red}Could not connect to: ${default}"
+                for no_connects in "${hosts_no_connect[@]}"; do
+                    echo -e "${light_blue}${no_connects}${default}"
+                done
+            fi
             ;;
-        1) # Copy SSH Key
+        1) # Test Connection
             clear
+            hosts_no_connect=()
             counter=0
             host_counter=1
 
-            if [[ $host_count -gt 0 ]]; then
+            if [ "${hostname}" = "" ]; then
                 # More than one host, loop through them
                 for hostname in "${host_array[@]}"; do
                     if [ ! "${hostname}" = "" ]; then
-                        # ping -c 1 "${hostname}" >/dev/null 2>&1
-                        # if [[ $? -eq 0 ]]; then
+                        # Test if the hostname is accessable
+                        ping -c 1 "${hostname}" >/dev/null 2>&1
+                        if [[ $? -eq 0 ]]; then
                             clear
+                            printf "Testing connection to %b%s%b using port %b%s%b \nIdentity file %b%s%b with user %b%s%b\n" "${light_red}" "${hostname}" "${default}" "${light_cyan}" "${port}" "${default}" "${light_blue}" "${ssh_identity}" "${default}" "${white}" "${username}" "${default}"
+                            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
                             printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
                             printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                            ssh-copy-id -o StrictHostKeychecking=no -p "${port}" "${ssh_identity}${hostname}"
                             ((host_counter++))
-                        # else
-                        #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
-                        #     ((counter++))
-                        # fi
+                        else
+                            hosts_no_connect+=("${hostname}")
+                            ((counter++))
+                        fi
                     fi
                 done
             else
+                # Test if the hostname is accessable
                 ping -c 1 "${hostname}" >/dev/null 2>&1
-                # if [[ $? -eq 0 ]]; then
+                if [[ $? -eq 0 ]]; then      
                     clear
+                    printf "Testing connection to %b%s%b using port %b%s%b \nIdentity file %b%s%b with user %b%s%b\n" "${light_red}" "${hostname}" "${default}" "${light_cyan}" "${port}" "${default}" "${light_blue}" "${ssh_identity}" "${default}" "${white}" "${username}" "${default}"
+                    printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
                     printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
                     printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                    ssh-copy-id -o StrictHostKeychecking=no -p "${port}" "${ssh_identity}${hostname}"
-                # else
-                #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
-                #     ((counter++)) 
-                # fi
+                else
+                    hosts_no_connect+=("${hosts_no_connect}")
+                    ((counter++))
+                fi
             fi
             
-            if [ ${counter} -eq 1 ]; then
-                counted_hosts="host"
-            else
-                counted_hosts="hosts"
-            fi
+            [ ${counter} -eq 1 ] && counted_hosts="host" || counted_hosts="hosts"
+            printf "%b%s%b connected, %b%s %b%s%b could not connect\n\n" "${light_red}" "${host_counter}" "${white}" "${light_red}" "${counter}" "${white}" "${counted_hosts}" "${default}"
 
-            printf "%b%s %b%s%b could not connect\n\n" "${light_red}" "${counter}" "${white}" "${counted_hosts}" "${default}"
+            if [ ! ${#hosts_no_connect[@]} -eq 0 ]; then
+                echo -e "${light_red}Could not connect to: ${default}"
+                for no_connects in "${hosts_no_connect[@]}"; do
+                    echo -e "${light_blue}${no_connects}${default}"
+                done
+            fi
             ;;
-        2) # Check Security Updates
+        2) # Copy SSH Key
+            clear
+            counter=0
+            host_counter=1
+
+            if [ "${hostname}" = "" ]; then
+                # More than one host, loop through them
+                for hostname in "${host_array[@]}"; do
+                    if [ ! "${hostname}" = "" ]; then
+                        # Test if the hostname is accessable
+                        ping -c 1 "${hostname}" >/dev/null 2>&1
+                        if [[ $? -eq 0 ]]; then
+                            clear
+                            printf "Connecting to %b%s%b using port %b%s%b \nIdentity file %b%s%b with user %b%s%b\n" "${light_red}" "${hostname}" "${default}" "${light_cyan}" "${port}" "${default}" "${light_blue}" "${ssh_identity}" "${default}" "${white}" "${username}" "${default}"
+                            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
+                            printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
+                            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+                            # "${ssh_identity}"
+                            ssh-copy-id -f -o StrictHostKeychecking=no"${ssh_identity}" -p "${port}" "${username}@${hostname}"
+                            ((host_counter++))
+                        else
+                            hosts_no_connect+=("${hosts_no_connect}")
+                            ((counter++))
+                        fi
+                    fi
+                done
+            else
+                ping -c 1 "${hostname}" >/dev/null 2>&1
+                if [[ $? -eq 0 ]]; then      
+                    clear
+                    printf "Connecting to %b%s%b using port %b%s%b and identity file %b%s%b with user %b%s%b\n" "${light_red}" "${hostname}" "${default}" "${light_cyan}" "${port}" "${default}" "${light_blue}" "${ssh_identity}" "${default}" "${white}" "${username}" "${default}"
+                    printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
+                    printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
+                    printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+                    ssh-copy-id -f -o StrictHostKeychecking=no"${identity_file}" -p "${port}" "${username}@${hostname}"
+                else
+                    hosts_no_connect+=("${hosts_no_connect}")
+                    ((counter++))
+                fi
+            fi
+            
+            [ ${counter} -eq 1 ] && counted_hosts="host" || counted_hosts="hosts"
+            printf "%b%s%b connected, %b%s %b%s%b could not connect\n\n" "${light_red}" "${host_counter}" "${white}" "${light_red}" "${counter}" "${white}" "${counted_hosts}" "${default}"
+
+            if [ ! ${#hosts_no_connect[@]} -eq 0 ]; then
+                echo -e "${light_red}Could not connect to: ${default}"
+                for no_connects in "${hosts_no_connect[@]}"; do
+                    echo -e "${light_blue}${no_connects}${default}"
+                done
+            fi
+            ;;
+        3) # Get OS Version
+            clear
+            counter=0
+            host_counter=1
+
+            if [ "${hostname}" = "" ]; then
+                # More than one host, loop through them
+                for hostname in "${host_array[@]}"; do
+                    if [ ! "${hostname}" = "" ]; then
+                        # Test if the hostname is accessable
+                        ping -c 1 "${hostname}" >/dev/null 2>&1
+                        if [[ $? -eq 0 ]]; then
+                            clear
+                            printf "Connecting to %b%s%b using port %b%s%b \nIdentity file %b%s%b with user %b%s%b\n" "${light_red}" "${hostname}" "${default}" "${light_cyan}" "${port}" "${default}" "${light_blue}" "${ssh_identity}" "${default}" "${white}" "${username}" "${default}"
+                            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
+                            printf "%s from %b%s%b (%b%s%b of %b%s%b) results will be in the %b./reports%b folder by host name\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}" "${light_yellow}" "${default}"
+                            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+                            do_scp "/etc/os-release" "./reports/${hostname}-os-version-$(date +"%Y-%m-%d").txt"
+                            ((host_counter++))
+                        else
+                            hosts_no_connect+=("${hosts_no_connect}")
+                            ((counter++))
+                        fi
+                    fi
+                done
+            else
+                ping -c 1 "${hostname}" >/dev/null 2>&1
+                if [[ $? -eq 0 ]]; then      
+                    clear
+                    printf "Connecting to %b%s%b using port %b%s%b and identity file %b%s%b with user %b%s%b\n" "${light_red}" "${hostname}" "${default}" "${light_cyan}" "${port}" "${default}" "${light_blue}" "${ssh_identity}" "${default}" "${white}" "${username}" "${default}"
+                    printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
+                    printf "%s from %b%s%b (%b%s%b of %b%s%b) results will be in the %b./reports%b folder by host name\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}" "${light_yellow}" "${default}"
+                    printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+                    do_scp "/etc/os-release" "./reports/${hostname}-os-version-$(date +"%Y-%m-%d").txt"
+                else
+                    hosts_no_connect+=("${hosts_no_connect}")
+                    ((counter++))
+                fi
+            fi
+            
+            [ ${counter} -eq 1 ] && counted_hosts="host" || counted_hosts="hosts"
+            printf "%b%s%b connected, %b%s %b%s%b could not connect\n\n" "${light_red}" "${host_counter}" "${white}" "${light_red}" "${counter}" "${white}" "${counted_hosts}" "${default}"
+
+            if [ ! ${#hosts_no_connect[@]} -eq 0 ]; then
+                echo -e "${light_red}Could not connect to: ${default}"
+                for no_connects in "${hosts_no_connect[@]}"; do
+                    echo -e "${light_blue}${no_connects}${default}"
+                done
+            fi
+            ;;
+        4) # JetPatch Health Check
+            clear
+            printf "Connecting to %b%s%b using port %b%s%b and identity file %b%s%b with user %b%s%b\n" "${light_red}" "${hostname}" "${default}" "${light_cyan}" "${port}" "${default}" "${light_blue}" "${ssh_identity}" "${default}" "${white}" "${username}" "${default}"
+            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
+            printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
+            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+            printf "%s" "Memory"
+            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+            do_ssh "free -h"
+            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+            printf "%s" "Disk Space"
+            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+            do_ssh "df -h | grep vg01-lvData"
+            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+            printf "%s" "Cron Jobs"
+            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+            do_ssh "sudo crontab -l"
+            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+            printf "%s" "JetPatch Errors"
+            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+            do_ssh "sudo tail -n 10 /usr/share/tomcat/default/logs/vmanage.log | grep -i ERROR"
+            ;;
+        5) # Check Security Updates
             clear
             counter=0
             host_counter=1
@@ -511,43 +659,45 @@ function get_action {
                 # More than one host, loop through them
                 for hostname in "${host_array[@]}"; do
                     if [ ! "${hostname}" = "" ]; then
-                        # ping -c 1 "${hostname}" >/dev/null 2>&1
-                        # if [[ $? -eq 0 ]]; then
+                        ping -c 1 "${hostname}" >/dev/null 2>&1
+                        if [[ $? -eq 0 ]]; then
                             clear
                             printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
                             printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                            ssh -F "${sshconfig_file}" -p "${port}" "${ssh_identity}${username}@${hostname}" "sudo yum --security check-update > ${hostname}_security_check_update_$(date +"%Y-%m-%d").log"
-                            scp -F "${sshconfig_file}" -P "${port}" "${ssh_identity}${username}@${hostname}:~/${hostname}_security_check_update_$(date +"%Y-%m-%d").log" ./reports/
+                            do_ssh "sudo yum --security check-update > $(hostname -s)_security_check_update_$(date +"%Y-%m-%d").log"
+                            do_scp "~/${hostname}_security_check_update_$(date +"%Y-%m-%d").log" "./reports/updates/"
                             ((host_counter++))
-                        # else
-                        #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
-                        #     ((counter++))
-                        # fi
+                        else
+                            hosts_no_connect+=("${hosts_no_connect}")
+                            ((counter++))
+                        fi
                     fi
                 done
             else
                 ping -c 1 "${hostname}" >/dev/null 2>&1
-                # if [[ $? -eq 0 ]]; then
+                if [[ $? -eq 0 ]]; then
                     clear
                     printf "%s to %b%s%b (%b%s%b of %b1%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${default}"
                     printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                    ssh -F "${sshconfig_file}" -p "${port}" "${ssh_identity}${username}@${hostname}" "sudo yum --security check-update > $(hostname -s)_security_check_update_$(date +"%Y-%m-%d").log"
-                    scp -F "${sshconfig_file}" -p "${port}" "${ssh_identity}${username}@${hostname}:~/${hostname}_security_check_update_$(date +"%Y-%m-%d").log" ./reports/
-                # else
-                #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
-                #     ((counter++))
-                # fi
+                    do_ssh "sudo yum --security check-update > $(hostname -s)_security_check_update_$(date +"%Y-%m-%d").log"
+                    do_scp "~/${hostname}_security_check_update_$(date +"%Y-%m-%d").log" "./reports/updates/"
+                else
+                    hosts_no_connect+=("${hosts_no_connect}")
+                    ((counter++))
+                fi
             fi
             
-            if [ ${counter} -eq 1 ]; then
-                counted_hosts="host"
-            else
-                counted_hosts="hosts"
-            fi
+            [ ${counter} -eq 1 ] && counted_hosts="host" || counted_hosts="hosts"
+            printf "%b%s%b connected, %b%s %b%s%b could not connect\n\n" "${light_red}" "${host_counter}" "${white}" "${light_red}" "${counter}" "${white}" "${counted_hosts}" "${default}"
 
-            printf "%b%s %b%s%b could not connect\n\n" "${light_red}" "${counter}" "${white}" "${counted_hosts}" "${default}"
+            if [ ! ${#hosts_no_connect[@]} -eq 0 ]; then
+                echo -e "${light_red}Could not connect to: ${default}"
+                for no_connects in "${hosts_no_connect[@]}"; do
+                    echo -e "${light_blue}${no_connects}${default}"
+                done
+            fi
             ;;
-        3) # Refresh Subscription Manager
+        6) # Refresh Subscription Manager
             clear
             counter=0
             host_counter=1
@@ -561,7 +711,7 @@ function get_action {
                             clear
                             printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
                             printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                            ssh -F ${sshconfig_file} -p ${port} ${ssh_identity}${username}@${hostname} "sudo subscription-manager refresh"
+                            ssh ${ssh_identity}${username}@${hostname} "sudo subscription-manager refresh"
                             ((host_counter++))
                         # else
                         #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
@@ -575,7 +725,7 @@ function get_action {
                     clear
                     printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
                     printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
-                    ssh -F ${sshconfig_file} -p ${port} ${ssh_identity}${username}@${hostname} "sudo subscription-manager refresh"
+                    ssh  ${ssh_identity}${username}@${hostname} "sudo subscription-manager refresh"
                 # else
                 #     printf "%bUnable to reach %b%s%b\n" "${light_red}" "${white}" "${hostname}" "${default}"
                 #     ((counter++))
@@ -590,7 +740,58 @@ function get_action {
 
             printf "%b%s %b%s%b could not connect\n\n" "${light_red}" "${counter}" "${white}" "${counted_hosts}" "${default}"
             ;;
-        4)
+        7) # Deploy Security Patches
+            clear
+            hosts_no_connect=()
+            counter=0
+            host_counter=1
+
+            if [ "${hostname}" = "" ]; then
+                # More than one host, loop through them
+                for hostname in "${host_array[@]}"; do
+                    if [ ! "${hostname}" = "" ]; then
+                        # Test if the hostname is accessable
+                        ping -c 1 "${hostname}" >/dev/null 2>&1
+                        if [[ $? -eq 0 ]]; then
+                            clear
+                            printf "Testing connection to %b%s%b using port %b%s%b \nIdentity file %b%s%b with user %b%s%b\n" "${light_red}" "${hostname}" "${default}" "${light_cyan}" "${port}" "${default}" "${light_blue}" "${ssh_identity}" "${default}" "${white}" "${username}" "${default}"
+                            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
+                            printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
+                            printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+                            #ssh -p "${port}" "${username}@${hostname}" "cat /etc/os-release"
+                            ((host_counter++))
+                        else
+                            hosts_no_connect+=("${hostname}")
+                            ((counter++))
+                        fi
+                    fi
+                done
+            else
+                # Test if the hostname is accessable
+                ping -c 1 "${hostname}" >/dev/null 2>&1
+                if [[ $? -eq 0 ]]; then      
+                    clear
+                    printf "Testing connection to %b%s%b using port %b%s%b \nIdentity file %b%s%b with user %b%s%b\n" "${light_red}" "${hostname}" "${default}" "${light_cyan}" "${port}" "${default}" "${light_blue}" "${ssh_identity}" "${default}" "${white}" "${username}" "${default}"
+                    printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n" "${dark_gray}" "${default}"
+                    printf "%s to %b%s%b (%b%s%b of %b%s%b)\n" "${action_options[$action_choice]}" "${light_red}" "${hostname}" "${default}" "${yellow}" "${host_counter}" "${default}" "${yellow}" "${host_count}" "${default}"
+                    printf "%b═════════════════════════════════════════════════════════════════════════════════════════════════════%b\n\n" "${dark_gray}" "${default}"
+                else
+                    hosts_no_connect+=("${hosts_no_connect}")
+                    ((counter++))
+                fi
+            fi
+            
+            [ ${counter} -eq 1 ] && counted_hosts="host" || counted_hosts="hosts"
+            printf "%b%s%b connected, %b%s %b%s%b could not connect\n\n" "${light_red}" "${host_counter}" "${white}" "${light_red}" "${counter}" "${white}" "${counted_hosts}" "${default}"
+
+            if [ ! ${#hosts_no_connect[@]} -eq 0 ]; then
+                echo -e "${light_red}Could not connect to: ${default}"
+                for no_connects in "${hosts_no_connect[@]}"; do
+                    echo -e "${light_blue}${no_connects}${default}"
+                done
+            fi
+            ;;
+        8)
              # Copy File
             echo "Index ${action_choice} is ${action_options[$action_choice]} to $display_host"
             if [[ $host_count -gt 1 ]]; then
@@ -617,7 +818,7 @@ function get_action {
                 done
             fi
             ;;
-        5)
+        9)
             # Get File
             echo "Index ${action_choice} is ${action_options[$action_choice]} to $display_host"
             if [[ $host_count -gt 1 ]]; then
@@ -643,7 +844,7 @@ function get_action {
                 done
             fi
             ;;
-        6)
+        10)
             # Check Memory
             echo "Index ${action_choice} is ${action_options[$action_choice]} to $display_host"
             if [[ $host_count -gt 1 ]]; then
@@ -662,14 +863,14 @@ function get_action {
 
                     ping -c 1 "${hostname}" >/dev/null 2>&1
                     if [[ $? -eq 0 ]]; then      
-                        echo "ssh -p ${port} ${ssh_identity}${username}@${hostname}"
+                        ssh -p "${port}" "${ssh_identity}${username}@${hostname}" "awk '/MemFree/ { printf "%.3f \n", $2/1024/1024 }' /proc/meminfo"
                     else
                         echo "Unable to reach ${hostname}"
                     fi
                 done
             fi
             ;;
-        7)
+        11)
             # Check Disk Space
             echo "Index ${action_choice} is ${action_options[$action_choice]} to $display_host"
             if [[ $host_count -gt 1 ]]; then
@@ -695,7 +896,7 @@ function get_action {
                 done
             fi
             ;;
-        8)
+        12)
             # Check Load
             echo "Index ${action_choice} is ${action_options[$action_choice]} to $display_host"
             if [[ $host_count -gt 1 ]]; then
@@ -721,7 +922,7 @@ function get_action {
                 done
             fi
             ;;
-        9)
+        13)
             # Reboot Host
             echo "Index ${action_choice} is ${action_options[$action_choice]} to $display_host"
             if [[ $host_count -gt 1 ]]; then
@@ -747,7 +948,7 @@ function get_action {
                 done
             fi
             ;;
-        10)
+        14)
             # Shutdown Host
             echo "Index ${action_choice} is ${action_options[$action_choice]} to $display_host"
             if [[ $host_count -gt 1 ]]; then
@@ -773,7 +974,7 @@ function get_action {
                 done
             fi
             ;;
-        11) # Exit Remote Admin
+        15) # Exit Remote Admin
             bye
             ;;
         *)
@@ -1043,18 +1244,22 @@ if [[ $# -eq 0 ]]; then
     # Prompt the user to select a host or host file
     printf "A %bhost%b or %bhost file%b was not specified, choose if you want to select a specific hosts, or a multiple hosts\n" "${light_yellow}" "${default}" "${light_yellow}" "${default}"
     printf "%b══════════════════════════════════════════════════════════════════════════════════════════=══════════════%b\n\n" "${dark_gray}" "${default}"
-    host_type=("Hosts from config" "Hosts from a file" "Type in a hostname")
+    host_type=("JetPatch" "Hosts from config" "Hosts from a file" "Type in a hostname")
     select_option "${host_type[@]}"
     host_type_choice=$?
 
     case "$host_type_choice" in
         0)
-            get_host
+            hostname="qaspvpajp01"
+            continue
             ;;
         1)
-            get_host_file
+            get_host
             ;;
         2)
+            get_host_file
+            ;;
+        3)
             type_host
             ;;
     esac
@@ -1104,6 +1309,9 @@ else
                 ;;
             --configure)
                 configure=true
+                ;;
+            --ldap)
+                ldapsearch -x -b "dc=americas,dc=cshare,dc=net" -H ldap://QASPVPIDC1.americas.cshare.net -D "CN=nasvc_orion,OU=Server Admins,OU=Privileged Objects,DC=americas,DC=cshare,DC=net" -W
                 ;;
             *)
                 echo "Invalid option: $1"
